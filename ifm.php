@@ -40,6 +40,7 @@ class IFM {
 		"rename" => 1,
 		"zipnload" => 1,
 		"createarchive" => 1,
+		"search" => 1,
 
 		// gui controls
 		"showlastmodified" => 0,
@@ -51,7 +52,9 @@ class IFM {
 		"showhiddenfiles" => 1,
 		"showpath" => 0,
 		"contextmenu" => 1,
-		"disable_mime_detection" => 0
+		"disable_mime_detection" => 0,
+		"showrefresh" => 1,
+		"forceproxy" => 0
 	);
 
 	private $config = array();
@@ -97,6 +100,9 @@ class IFM {
 		$this->config['showhiddenfiles'] =  getenv('IFM_GUI_SHOWHIDDENFILES') !== false ? intval( getenv('IFM_GUI_SHOWHIDDENFILES') ) : $this->config['showhiddenfiles'] ;
 		$this->config['showpath'] =  getenv('IFM_GUI_SHOWPATH') !== false ? intval( getenv('IFM_GUI_SHOWPATH') ) : $this->config['showpath'] ;
 		$this->config['contextmenu'] =  getenv('IFM_GUI_CONTEXTMENU') !== false ? intval( getenv('IFM_GUI_CONTEXTMENU') ) : $this->config['contextmenu'] ;
+		$this->config['search'] =  getenv('IFM_API_SEARCH') !== false ? intval( getenv('IFM_API_SEARCH') ) : $this->config['search'] ;
+		$this->config['showrefresh'] =  getenv('IFM_GUI_REFRESH') !== false ? intval( getenv('IFM_GUI_REFRESH') ) : $this->config['showrefresh'] ;
+		$this->config['forceproxy'] =  getenv('IFM_GUI_FORCEPROXY') !== false ? intval( getenv('IFM_GUI_FORCEPROXY') ) : $this->config['forceproxy'] ;
 
 		// optional settings
 		if( getenv('IFM_SESSION_LIFETIME') !== false )
@@ -140,8 +146,12 @@ f00bar;
 						</div>
 					</form>
 					<ul class="nav navbar-nav navbar-right">
+						{{#config.showrefresh}}
 						<li><a id="refresh"><span title="{{i18n.refresh}}" class="icon icon-arrows-cw"></span> <span class="visible-xs">{{i18n.refresh}}</span></a></li>
+						{{/config.showrefresh}}
+						{{#config.search}}
 						<li><a id="search"><span title="{{i18n.search}}" class="icon icon-search"></span> <span class="visible-xs">{{i18n.search}}</span></a></li>
+						{{/config.search}}
 						{{#config.upload}}
 						<li><a id="upload"><span title="{{i18n.upload}}" class="icon icon-upload"></span> <span class="visible-xs">{{i18n.upload}}</span></a></li>
 						{{/config.upload}}
@@ -1499,7 +1509,7 @@ function IFM(params) {
 				}
 			}
 			item.download.link = self.api+"?api="+item.download.action+"&dir="+self.hrefEncode(self.currentDir)+"&filename="+self.hrefEncode(item.download.name);
-			if( self.config.isDocroot )
+			if( self.config.isDocroot && !self.config.forceproxy )
 				item.link = self.hrefEncode( self.pathCombine( window.location.path, self.currentDir, item.name ) );
 			else if (self.config.download && self.config.zipnload) {
 				if (self.config.root_public_url) {
@@ -2463,7 +2473,7 @@ function IFM(params) {
 			searchresults.tBodies[0].addEventListener( 'click', function( e ) {
 				if( e.target.classList.contains( 'searchitem' ) || e.target.parentElement.classList.contains( 'searchitem' ) ) {
 					e.preventDefault();
-					self.changeDirectory( self.pathCombine( self.search.data.currentDir, e.target.dataset.folder || e.target.parentElement.dataset.foldera ), { absolute: true } );
+					self.changeDirectory(self.pathCombine(self.search.data.currentDir, e.target.dataset.folder || e.target.parentElement.dataset.folder), {absolute: true});
 					self.hideModal();
 				}
 			});
@@ -2916,8 +2926,10 @@ function IFM(params) {
 		// global key events
 		switch( e.key ) {
 			case '/':
-				e.preventDefault();
-				self.showSearchDialog();
+				if (self.config.search) {
+					e.preventDefault();
+					self.showSearchDialog();
+				}
 				break;
 			case 'g':
 				e.preventDefault();
@@ -2925,9 +2937,10 @@ function IFM(params) {
 				return;
 				break;
 			case 'r':
-				e.preventDefault();
-				self.refreshFileTable();
-				return;
+				if (self.config.showrefresh) {
+					e.preventDefault();
+					self.refreshFileTable();
+				}
 				break;
 			case 'u':
 				if( self.config.upload ) {
@@ -3154,8 +3167,12 @@ function IFM(params) {
 				});
 
 		// bind static buttons
-		document.getElementById( 'refresh' ).onclick = function() { self.refreshFileTable(); };
-		document.getElementById( 'search' ).onclick = function() { self.showSearchDialog(); };
+		if (el_r = document.getElementById('refresh'))
+			el_r.onclick = function() { self.refreshFileTable(); };
+		if (el_s = document.getElementById('search'))
+			el_s.onclick = function() { self.showSearchDialog(); };
+		//document.getElementById( 'refresh' ).onclick = function() { self.refreshFileTable(); };
+		//document.getElementById( 'search' ).onclick = function() { self.showSearchDialog(); };
 		if( self.config.createfile )
 			document.getElementById( 'createFile' ).onclick = function() { self.showFileDialog(); };
 		if( self.config.createdir )
@@ -3479,7 +3496,8 @@ f00bar;
 	private function getConfig() {
 		$ret = $this->config;
 		$ret['inline'] = ( $this->mode == "inline" ) ? true : false;
-		$ret['isDocroot'] = ( $this->getRootDir() == $this->getScriptRoot() ) ? true : false;
+		$ret['isDocroot'] = ($this->getRootDir() == $this->getScriptRoot);
+
 		foreach (array("auth_source", "root_dir") as $field) {
 			unset($ret[$field]);
 		}
@@ -3516,6 +3534,11 @@ f00bar;
 	}
 
 	private function searchItems( $d ) {
+		if( $this->config['search'] != 1 ) {
+			$this->jsonResponse( array( "status" => "ERROR", "message" => $this->l['nopermissions'] ) );
+			return;
+		}
+
 		if( strpos( $d['pattern'], '/' ) !== false ) {
 			$this->jsonResponse( array( "status" => "ERROR", "message" => $this->l['pattern_error_slashes'] ) );
 			exit( 1 );
@@ -3742,6 +3765,8 @@ f00bar;
 	private function downloadFile( array $d, $forceDL=true ) {
 		if( $this->config['download'] != 1 )
 			$this->jsonResponse( array( "status" => "ERROR", "message" => $this->l['nopermissions'] ) );
+		elseif( ! $this->isFilenameValid( $d['filename'] ) )
+			$this->jsonResponse( array( "status" => "ERROR", "message" => $this->l['invalid_filename'] ) );
 		elseif( $this->config['showhtdocs'] != 1 && ( substr( $d['filename'], 0, 3 ) == ".ht" || substr( $d['filename'],0,3 ) == ".ht" ) )
 			$this->jsonResponse( array( "status" => "ERROR", "message"=> $this->l['nopermissions'] ) );
 		elseif( $this->config['showhiddenfiles'] != 1 && ( substr( $d['filename'], 0, 1 ) == "." || substr( $d['filename'],0,1 ) == "." ) )
@@ -3881,20 +3906,22 @@ f00bar;
 		else {
 			if( ! file_exists( $d['filename'] ) )
 				$this->jsonResponse( array( "status" => "ERROR", "message" => $this->l['folder_not_found'] ) );
-			elseif ( ! $this->isFilenameValid( $d['filename'] ) )
+			elseif (!$this->isPathValid($d['filename']))
+				$this->jsonResponse( array( "status" => "ERROR", "message" => $this->l['invalid_dir'] ) );
+			elseif ($d['filename'] != "." && !$this->isFilenameValid($d['filename']))
 				$this->jsonResponse( array( "status" => "ERROR", "message" => $this->l['invalid_filename'] ) );
 			else {
 				unset( $zip );
-				$dfile = $this->pathCombine( $this->config['tmp_dir'], uniqid( "ifm-tmp-" ) . ".zip" ); // temporary filename
+				$dfile = $this->pathCombine( __DIR__, $this->config['tmp_dir'], uniqid( "ifm-tmp-" ) . ".zip" ); // temporary filename
 				try {
-					IFMArchive::createZip( realpath( $d['filename'] ), $dfile );
+					IFMArchive::createZip(realpath($d['filename']), $dfile, array($this, 'isFilenameValid'));
 					if( $d['filename'] == "." ) {
 						if( getcwd() == $this->getScriptRoot() )
 							$d['filename'] = "root";
 						else
 							$d['filename'] = basename( getcwd() );
 					}
-					$this->fileDownload( array( "file" => $dfile, "name" => $d['filename'] . ".zip" ) );
+					$this->fileDownload( array( "file" => $dfile, "name" => $d['filename'] . ".zip", "forceDL" => true ) );
 				} catch ( Exception $e ) {
 					echo $this->l['error'] . " " . $e->getMessage();
 				} finally {
@@ -4307,17 +4334,16 @@ f00bar;
 	}
 
 	// combines two parts to a valid path
-	private function pathCombine( $a, $b ) {
-		if( trim( $a ) == "" && trim( $b ) == "" )
-			return "";
-		elseif( trim( $a ) == "" )
-			return ltrim( $b, '/' );
-		else
-			return rtrim( $a, '/' ) . '/' . trim( $b, '/' );
+	private function pathCombine(...$parts) {
+		$ret = "";
+		foreach($parts as $part)
+			if (trim($part) != "")
+				$ret .= (empty($ret)?rtrim($part,"/"):trim($part, '/'))."/";
+		return rtrim($ret, "/");
 	}
 
 	// check if filename is allowed
-	private function isFilenameValid( $f ) {
+	public function isFilenameValid( $f ) {
 		if( ! $this->isFilenameAllowed( $f ) )
 			return false;
 		if( strtoupper( substr( PHP_OS, 0, 3 ) ) == "WIN" ) {
@@ -4417,44 +4443,53 @@ class IFMArchive {
 	/**
 	 * Add a folder to an archive
 	 */
-	private static function addFolder( &$archive, $folder, $offset=0 ) {
-		if( $offset == 0 )
-			$offset = strlen( dirname( $folder ) ) + 1;
-		$archive->addEmptyDir( substr( $folder, $offset ) );
-		$handle = opendir( $folder );
-		while( false !== $f = readdir( $handle ) ) {
-			if( $f != '.' && $f != '..'  ) {
+	private static function addFolder(&$archive, $folder, $offset=0, $exclude_callback=null) {
+		if ($offset == 0)
+			$offset = strlen(dirname($folder)) + 1;
+		$archive->addEmptyDir(substr($folder, $offset));
+		$handle = opendir($folder);
+		while (false !== $f = readdir($handle)) {
+			if ($f != '.' && $f != '..') {
 				$filePath = $folder . '/' . $f;
-				if( file_exists( $filePath ) && is_readable( $filePath ) )
-					if( is_file( $filePath ) )
-						$archive->addFile( $filePath, substr( $filePath, $offset ) );
-					elseif( is_dir( $filePath ) )
-						self::addFolder( $archive, $filePath, $offset );
+				if (file_exists($filePath) && is_readable($filePath))
+					if (is_file($filePath))
+						if (!is_callable($exclude_callback) || $exclude_callback($f))
+							$archive->addFile( $filePath, substr( $filePath, $offset ) );
+					elseif (is_dir($filePath))
+						if (is_callable($exclude_callback))
+							self::addFolder($archive, $filePath, $offset, $exclude_callback);
+						else
+							self::addFolder($archive, $filePath, $offset);
 			}
 		}
-		closedir( $handle );
+		closedir($handle);
 	}
 
 	/**
 	 * Create a zip file
 	 */
-	public static function createZip( $src, $out )
-	{
+	public static function createZip($src, $out, $exclude_callback=null) {
 		$a = new ZipArchive();
-		$a->open( $out, ZIPARCHIVE::CREATE);
+		$a->open($out, ZIPARCHIVE::CREATE);
 
-		if( ! is_array( $src ) )
-			$src = array( $src );
+		if (!is_array($src))
+			$src = array($src);
 
-		foreach( $src as $s )
-			if( is_dir( $s ) )
-				self::addFolder( $a, $s );
-			elseif( is_file( $s ) )
-				$a->addFile( $s, substr( $s, strlen( dirname( $s ) ) + 1 ) );
+		file_put_contents("debug.ifm.log", var_export(is_callable($exclude_callback), true)."\n");
+
+		foreach ($src as $s)
+			if (is_dir($s))
+				if (is_callable($exclude_callback))
+					self::addFolder( $a, $s, null, $exclude_callback );
+				else
+					self::addFolder( $a, $s );
+			elseif (is_file($s))
+				if (!is_callable($exclude_callback) || $exclude_callback($s))
+					$a->addFile($s, substr($s, strlen(dirname($s)) + 1));
 
 		try {
 			return $a->close();
-		} catch ( Exception $e ) {
+		} catch (Exception $e) {
 			return false;
 		}
 	}
@@ -4462,13 +4497,13 @@ class IFMArchive {
 	/**
 	 * Unzip a zip file
 	 */
-	public static function extractZip( $file, $destination="./" ) {
-		if( ! file_exists( $file ) )
+	public static function extractZip($file, $destination="./") {
+		if (!file_exists($file))
 			return false;
 		$zip = new ZipArchive;
-		$res = $zip->open( $file );
-		if( $res === true ) {
-			$zip->extractTo( $destination );
+		$res = $zip->open($file);
+		if ($res === true) {
+			$zip->extractTo($destination);
 			$zip->close();
 			return true;
 		} else
@@ -4478,32 +4513,32 @@ class IFMArchive {
 	/**
 	 * Creates a tar archive
 	 */
-	public static function createTar( $src, $out, $t ) {
-		$tmpf = substr( $out, 0, strlen( $out ) - strlen( $t ) ) . "tar";
-		$a = new PharData( $tmpf );
+	public static function createTar($src, $out, $t) {
+		$tmpf = substr($out, 0, strlen($out) - strlen($t)) . "tar";
+		$a = new PharData($tmpf);
 
 		try { 
-			if( ! is_array( $src ) )
-				$src = array( $src );
+			if (!is_array($src))
+				$src = array($src);
 
-			foreach( $src as $s )
-				if( is_dir( $s ) )
-					self::addFolder( $a, $s );
-				elseif( is_file( $s ) )
-					$a->addFile( $s, substr( $s, strlen( dirname( $s ) ) +1 ) ); 
-			switch( $t ) {
+			foreach ($src as $s)
+				if (is_dir($s))
+					self::addFolder($a, $s);
+				elseif (is_file($s))
+					$a->addFile($s, substr($s, strlen(dirname($s)) +1)); 
+			switch ($t) {
 			case "tar.gz":
-				$a->compress( Phar::GZ );
-				@unlink( $tmpf );
+				$a->compress(Phar::GZ);
+				@unlink($tmpf);
 				break;
 			case "tar.bz2":
-				$a->compress( Phar::BZ2 );
-				@unlink( $tmpf );
+				$a->compress(Phar::BZ2);
+				@unlink($tmpf);
 				break;
 			}
 			return true;
-		} catch( Exception $e ) {
-			@unlink( $tmpf );
+		} catch (Exception $e) {
+			@unlink($tmpf);
 			return false;
 		}
 	}
@@ -4511,14 +4546,14 @@ class IFMArchive {
 	/**
 	 * Extracts a tar archive
 	 */
-	public static function extractTar( $file, $destination="./" ) {
-		if( ! file_exists( $file ) )
+	public static function extractTar($file, $destination="./") {
+		if (!file_exists($file))
 			return false;
-		$tar = new PharData( $file );
+		$tar = new PharData($file);
 		try {
-			$tar->extractTo( $destination, null, true );
+			$tar->extractTo($destination, null, true);
 			return true;
-		} catch( Exception $e ) {
+		} catch (Exception $e) {
 			return false;
 		}
 	}
