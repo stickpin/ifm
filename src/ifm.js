@@ -33,7 +33,7 @@ function IFM(params) {
 	this.showModal = function( content, options ) {
 		options = options || {};
 		var modal = document.createElement( 'div' );
-		modal.classList.add( 'modal', 'fade' );
+		modal.classList.add( 'modal' );
 		modal.id = 'ifmmodal';
 		modal.attributes.role = 'dialog';
 		var modalDialog = document.createElement( 'div' );
@@ -134,7 +134,7 @@ function IFM(params) {
 					item.download.icon = "icon icon-download";
 				}
 				if( item.icon.indexOf( 'file-image' ) !== -1  ) {
-					item.tooltip = 'data-toggle="tooltip"';
+					item.popover = 'data-toggle="popover"';
 				}
 				if( self.config.extract && self.inArray( item.ext, ["zip","tar","tgz","tar.gz","tar.xz","tar.bz2"] ) ) {
 					item.eaction = "extract";
@@ -150,9 +150,9 @@ function IFM(params) {
 						(
 							typeof item.mime_type === "string" && (
 								item.mime_type.substr( 0, 4 ) == "text"
-								|| item.mime_type == "inode/x-empty"
-								|| item.mime_type.indexOf( "xml" ) != -1
-								|| item.mime_type.indexOf( "json" ) != -1
+								|| item.mime_type.indexOf("x-empty") != -1
+								|| item.mime_type.indexOf("xml") != -1
+								|| item.mime_type.indexOf("json") != -1
 							)
 						)
 					)
@@ -171,9 +171,9 @@ function IFM(params) {
 			else if (self.config.download && self.config.zipnload) {
 				if (self.config.root_public_url) {
 					if (self.config.root_public_url.charAt(0) == "/")
-						item.link = self.pathCombine(window.location.origin, self.config.root_public_url, self.currentDir, item.name);
+						item.link = self.pathCombine(window.location.origin, self.config.root_public_url, self.hrefEncode(self.currentDir), self.hrefEncode(item.name) );
 					else
-						item.link = self.pathCombine(self.config.root_public_url, self.currentDir, item.name);
+						item.link = self.pathCombine(self.config.root_public_url, self.hrefEncode(self.currentDir), self.hrefEncode(item.name) );
 				} else
 					item.link = self.api+"?api="+(item.download.action=="zipnload"?"zipnload":"proxy")+"&dir="+self.hrefEncode(self.currentDir)+"&filename="+self.hrefEncode(item.download.name);
 			} else
@@ -214,7 +214,8 @@ function IFM(params) {
 
 		if( self.datatable ) self.datatable.destroy();
 		self.datatable = $('#filetable').DataTable({
-			paging: false,
+			paging: self.config.pagination,
+			pageLength: 50,
 			info: false,
 			autoWidth: false,
 			columnDefs: [
@@ -223,7 +224,8 @@ function IFM(params) {
 			orderFixed: [0, 'desc'],
 			language: {
 				"search": self.i18n.filter
-			}
+			},
+			stateSave: true
 		});
 
 
@@ -270,19 +272,20 @@ function IFM(params) {
 			}
 		});
 		// has to be jquery, since this is a bootstrap feature
-		$( 'a[data-toggle="tooltip"]' ).tooltip({
-			title: function() {
+		$( 'a[data-toggle="popover"]' ).popover({
+			content: function() {
 				var item = self.fileCache.find( x => x.guid == $(this).attr('id') );
-				var tooltip = document.createElement( 'img' );
+				var popover = document.createElement( 'img' );
 				if( self.config.isDocroot )
-					tooltip.src = encodeURI( self.pathCombine( self.currentDir, item.name ) ).replace( '#', '%23' ).replace( '?', '%3F' );
+					popover.src = encodeURI( self.pathCombine( self.currentDir, item.name ) ).replace( '#', '%23' ).replace( '?', '%3F' );
 				else
-					tooltip.src = self.api + "?api=proxy&dir=" + encodeURIComponent( self.currentDir ) + "&filename=" + encodeURIComponent( item.name );
-				tooltip.classList.add( 'imgpreview' );
-				return tooltip;
+					popover.src = self.api + "?api=proxy&dir=" + encodeURIComponent( self.currentDir ) + "&filename=" + encodeURIComponent( item.name );
+				popover.classList.add( 'imgpreview' );
+				return popover;
 			},
 			animated: 'fade',
-			placement: 'right',
+			placement: 'bottom',
+			trigger: 'hover',
 			html: true
 		});
 
@@ -374,7 +377,7 @@ function IFM(params) {
 							if( data.selected.length > 0 )
 								self.showMessage( "At the moment it is not possible to download a set of files." );
 							else
-								document.forms["d_"+data.clicked.guid].submit();
+								window.location = data.clicked.download.link;
 						},
 						iconClass: "icon icon-download",
 						isShown: function() { return !!self.config.download; }
@@ -479,11 +482,11 @@ function IFM(params) {
 			title: self.i18n.options,
 			content: function() {
 				// see https://github.com/twbs/bootstrap/issues/12571
-				var ihatethisfuckingpopoverworkaround = $('#editoroptions').data('bs.popover');
-				ihatethisfuckingpopoverworkaround.$tip.find( '.popover-content' ).empty();
+				// var ihatethisfuckingpopoverworkaround = $('#editoroptions').data('bs.popover');
+				// $(ihatethisfuckingpopoverworkaround.tip).find( '.popover-body' ).empty();
 
 				var aceSession = self.editor.getSession();
-				var content = self.getNodesFromString(
+				var content = self.getNodeFromString(
 					Mustache.render(
 						self.templates.file_editoroptions,
 						{
@@ -498,28 +501,29 @@ function IFM(params) {
 						}
 					)
 				);
-				content.forEach( function( el ) {
-					if( el.id == "editor-wordwrap" )
-						el.addEventListener( 'change', function( e ) {
-							self.editor.setOption( 'wrap', e.srcElement.checked );
-						});
-					else if( el.id == "editor-softtabs" )
-						el.addEventListener( 'change', function( e ) {
-							self.editor.setOption( 'useSoftTabs', e.srcElement.checked );
-						});
-					else if( el.lastChild && el.lastChild.id == "editor-tabsize" )
-						el.lastChild.addEventListener( 'keydown', function( e ) {
-							if( e.key == 'Enter' ) {
-								e.preventDefault();
-								self.editor.setOption( 'tabSize', e.srcElement.value );
-							}
-						});
-					else if( el.id == "editor-syntax" )
-						el.addEventListener( 'change', function( e ) {
-							self.editor.getSession().setMode( e.target.value );
-						});
-				});
+				if( el = content.querySelector("#editor-wordwrap" )) {
+					el.addEventListener( 'change', function( e ) {
+						aceSession.setOption( 'wrap', e.srcElement.checked );
+					});
+				}
+				if( el = content.querySelector("#editor-softtabs" ))
+					el.addEventListener( 'change', function( e ) {
+						aceSession.setOption( 'useSoftTabs', e.srcElement.checked );
+					});
+				if( el = content.querySelector("#editor-tabsize" )) {
+					el.addEventListener( 'keydown', function( e ) {
+						if( e.key == 'Enter' ) {
+							e.preventDefault();
+							aceSession.setOption( 'tabSize', e.srcElement.value );
+						}
+					});
+				}
+				if( el = content.querySelector("#editor-syntax" ))
+					el.addEventListener( 'change', function( e ) {
+						aceSession.getSession().setMode( e.target.value );
+					});
 				return content;
+
 			}
 		});
 
@@ -539,8 +543,6 @@ function IFM(params) {
 			bindKey: "Ctrl-Shift-F",
 			exec: function(e) {
 				var el = e.container;
-				console.log("toggleFullscreen was called");
-				console.log("el.parentElement.tagName is "+el.parentElement.tagName);
 				if (el.parentElement.tagName == "BODY") {
 					el.remove();
 					var fieldset = document.getElementsByClassName('modal-body')[0].firstElementChild;
@@ -944,15 +946,47 @@ function IFM(params) {
 		form.addEventListener( 'click', function( e ) {
 			if( e.target.id == 'buttonUpload' ) {
 				e.preventDefault();
+				var newfilename = form.elements.newfilename.value;
 				var files = Array.prototype.slice.call( form.elements.files.files );
-				if( files.length > 1 )
-					files.forEach( function( file ) {
-						self.uploadFile( file );
-					});
-				else
-					self.uploadFile( files[0], form.elements.newfilename.value );
+				var existing_files;
+				if (files.length > 1)
+					existing_files = files.map(x => x.name).filter(item => self.fileCache.map(x => x.name).includes(item));
+				else if (newfilename)
+					existing_files = self.fileCache.map(x => x.name).indexOf(newfilename) !== -1 ? [newfilename] : [];
+				else 
+					existing_files = self.fileCache.map(x => x.name).indexOf(files[0].name) !== -1 ? [files[0].name] : [];
+				if (existing_files.length > 0 && self.config.confirmoverwrite)
+					self.showUploadConfirmOverwrite(files, existing_files, newfilename);
+				else {
+					if (files.length == 1)
+						self.uploadFile(files[0], newfilename);
+					else
+						files.forEach( function( file ) {
+							self.uploadFile( file );
+						});
+				}
 				self.hideModal();
 			} else if( e.target.id == 'buttonCancel' ) {
+				e.preventDefault();
+				self.hideModal();
+			}
+		});
+	};
+
+	this.showUploadConfirmOverwrite = function(files, existing_files, newfilename=undefined) {
+		self.showModal(Mustache.render(self.templates.uploadconfirmoverwrite, {files: existing_files, i18n: self.i18n}));
+		var form = document.forms.formUploadConfirmOverwrite;
+		form.addEventListener('click', function(e) {
+			if (e.target.id == "buttonConfirm") {
+				e.preventDefault();
+				if (files.length == 1 && newfilename)
+					self.uploadFile(files[0], newfilename);
+				else
+					files.forEach(function(file) {
+						self.uploadFile(file);
+					});
+				self.hideModal();
+			} else if (e.target.id == 'buttonCancel') {
 				e.preventDefault();
 				self.hideModal();
 			}
@@ -1130,7 +1164,7 @@ function IFM(params) {
 			searchresults.tBodies[0].addEventListener( 'click', function( e ) {
 				if( e.target.classList.contains( 'searchitem' ) || e.target.parentElement.classList.contains( 'searchitem' ) ) {
 					e.preventDefault();
-					self.changeDirectory(self.pathCombine(self.search.data.currentDir, e.target.dataset.folder || e.target.parentElement.dataset.folder), {absolute: true});
+					self.changeDirectory( self.pathCombine( self.search.data.currentDir, e.target.dataset.folder || e.target.parentElement.dataset.folder ), { absolute: true });
 					self.hideModal();
 				}
 			});
@@ -1328,7 +1362,7 @@ function IFM(params) {
 	this.formatDate = function( timestamp ) {
 		var d = new Date( timestamp * 1000 );
 
-		return d.toLocaleString();
+		return d.toLocaleString(self.config.dateLocale);
 	};
 
 	this.getClipboardLink = function( relpath ) {
@@ -1384,18 +1418,19 @@ function IFM(params) {
 		if( ! document.querySelector( "footer" ) ) {
 			var newFooter = self.getNodeFromString( Mustache.render( self.templates.footer, { i18n: self.i18n } ) );
 			newFooter.addEventListener( 'click', function( e ) {
-				if( e.target.name == 'showAll' ) {
-					if( newFooter.style.maxHeight == '80%' ) {
-						newFooter.style.maxHeight = '6em';
-						newFooter.style.overflow = 'hidden';
+				if( e.target.name == 'showAll' || e.target.parentElement.name == "showAll" ) {
+					wq = newFooter.children.wq_container.children[0].children.waitqueue;
+					if( wq.style.maxHeight == '70vh' ) {
+						wq.style.maxHeight = '6rem';
+						wq.style.overflow = 'hidden';
 					} else {
-						newFooter.style.maxHeight = '80%';
-						newFooter.style.overflow = 'scroll';
+						wq.style.maxHeight = '70vh';
+						wq.style.overflow = 'auto';
 					}
 				}
 			});
 			document.body.appendChild( newFooter );
-			document.body.style.paddingBottom = '6em';
+			document.body.style.paddingBottom = '9rem';
 		}
 		task.id = "wq-"+task.id;
 		task.type = task.type || "info";
@@ -1818,6 +1853,9 @@ function IFM(params) {
 					showpath: "/",
 					config: self.config,
 					i18n: self.i18n,
+					generic: {
+						hasdropdown: (!!self.config.ajaxrequest||!!self.config.remoteupload||!!self.config.auth)
+					},
 					ftbuttons: function(){
 						return ( self.config.edit || self.config.rename || self.config.delete || self.config.zipnload || self.config.extract );
 					}
@@ -1857,10 +1895,14 @@ function IFM(params) {
 					div.ondrop = function( e ) {
 						e.preventDefault();
 						e.stopPropagation();
-						var files = e.dataTransfer.files;
-						for( var i = 0; i < files.length; i++ ) {
-							self.uploadFile( files[i] );
-						}
+						var files = Array.from(e.dataTransfer.files);
+						var existing_files = files.map(x => x.name).filter(item => self.fileCache.map(x => x.name).includes(item));
+						if (existing_files.length > 0 && self.config.confirmoverwrite)
+							self.showUploadConfirmOverwrite(files, existing_files);
+						else 
+							files.forEach(function(file) {
+								self.uploadFile(file);
+							});
 						if( e.target.id == 'filedropoverlay' )
 							e.target.style.display = 'none';
 						else if( e.target.parentElement.id == 'filedropoverlay' ) {

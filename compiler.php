@@ -6,7 +6,14 @@
  * This script compiles all sources into one single file.
  */
 
-chdir( realpath( dirname( __FILE__ ) ) );
+chdir(realpath(dirname(__FILE__)));
+
+// output files and common attrs
+define( "IFM_VERSION",       "v2.6.3" );
+define( "IFM_RELEASE_DIR",   "dist/");
+define( "IFM_STANDALONE",    "ifm.php" );
+define( "IFM_STANDALONE_GZ", "ifm.min.php" );
+define( "IFM_LIB",           "libifm.php" );
 
 // php source files
 $IFM_SRC_PHP = array(
@@ -15,20 +22,40 @@ $IFM_SRC_PHP = array(
 	2 => "src/htpasswd.php"
 );
 
-// output files
-define( "IFM_STANDALONE",    "ifm.php" );
-define( "IFM_STANDALONE_GZ", "build/ifm.min.php" );
-define( "IFM_LIB",           "build/libifm.php" );
-
 // get options
-$options = getopt( null, array( "language::" ) );
+$options = getopt(null, array("language::", "languages::", "lang::", "cdn"));
+
+// build CDN version?
+if (isset($options['cdn']))
+	define("IFM_CDN", true);
+else
+	define("IFM_CDN", false);
 
 // process languages
-$vars['languages'] = isset( $options['language'] ) ? explode( ',', $options['language'] ) : array( "en" );
-$vars['defaultlanguage'] = $vars['languages'][0];
+$langs = [];
+foreach ($options as $key => $value)
+	if (substr($key, 0, 4) == "lang")
+		$langs = array_merge($langs, explode(",", $value));
+$langs = array_unique($langs);
+if (!empty($langs)) {
+	$vars['default_lang'] = ($langs[0] == "all") ? "en" : $langs[0];
+} else {
+	$vars['default_lang'] = "en";
+}
+// ensure english is available, as it gets merged with the other languages
+// in case of missing keys in other languages.
+if (!in_array("all", $langs) || !in_array("en", $langs))
+	array_push($langs, "en");
+
+if (in_array("all", $langs))
+	$langs = array_map(
+		function($lang_file) {return pathinfo($lang_file)['filename']; },
+		glob("src/i18n/*.json")
+	);
+
 $vars['languageincludes'] = "";
-foreach( $vars['languages'] as $l ) {
-	if( file_exists( "src/i18n/".$l.".json" ) ) 
+foreach ($langs as $l)
+	if (file_exists("src/i18n/".$l.".json")) 
 		$vars['languageincludes'] .=
 			'$i18n["'.$l.'"] = <<<\'f00bar\'' . "\n"
 			. file_get_contents( "src/i18n/".$l.".json" ) . "\n"
@@ -36,11 +63,8 @@ foreach( $vars['languages'] as $l ) {
 			. '$i18n["'.$l.'"] = json_decode( $i18n["'.$l.'"], true );' . "\n" ;
 	else
 		print "WARNING: Language file src/i18n/".$l.".json not found.\n";
-}
 
-/**
- * Concat PHP Files
- */
+// Concat PHP Files
 $compiled = array( "<?php" );
 foreach( $IFM_SRC_PHP as $phpfile ) {
 	$lines = file( $phpfile );
@@ -49,17 +73,19 @@ foreach( $IFM_SRC_PHP as $phpfile ) {
 }
 $compiled = join( $compiled );
 
-/**
- * Process file includes
- */
+if( IFM_CDN )
+	$IFM_ASSETS = "src/assets.cdn.part";
+else
+	$IFM_ASSETS = "src/assets.part";
+$compiled = str_replace( "IFM_ASSETS", file_get_contents("src/assets".(IFM_CDN?".cdn":"").".part"), $compiled );
+
+// Process file includes
 $includes = NULL;
 preg_match_all( "/\@\@\@file:([^\@]+)\@\@\@/", $compiled, $includes, PREG_SET_ORDER );
 foreach( $includes as $file )
 	$compiled = str_replace( $file[0], file_get_contents( $file[1] ), $compiled );
 
-/**
- * Process ace includes
- */
+// Process ace includes
 $includes = NULL;
 $vars['ace_includes'] = "";
 preg_match_all( "/\@\@\@acedir:([^\@]+)\@\@\@/", $compiled, $includes, PREG_SET_ORDER );
@@ -74,20 +100,21 @@ foreach( $includes as $dir ) {
 	$compiled = str_replace( $dir[0], $dircontent, $compiled );
 }
 
-/**
- * Process variable includes
- */
+// Process variable includes
 $includes = NULL;
 preg_match_all( "/\@\@\@vars:([^\@]+)\@\@\@/", $compiled, $includes, PREG_SET_ORDER );
 foreach( $includes as $var )
 	$compiled = str_replace( $var[0], $vars[$var[1]], $compiled );
 
-/**
- * Build versions
- */
+$compiled = str_replace( 'IFM_VERSION', IFM_VERSION, $compiled );
+
+if (!is_dir(IFM_RELEASE_DIR)){
+    mkdir(IFM_RELEASE_DIR);
+}
+
 // build standalone ifm
-file_put_contents( IFM_STANDALONE, $compiled );
-file_put_contents( IFM_STANDALONE, '
+file_put_contents( IFM_RELEASE_DIR . (IFM_CDN ? 'cdn.' : '') . IFM_STANDALONE, $compiled );
+file_put_contents( IFM_RELEASE_DIR . (IFM_CDN ? 'cdn.' : '') . IFM_STANDALONE, '
 /**
  * start IFM
  */
@@ -95,13 +122,11 @@ $ifm = new IFM();
 $ifm->run();
 ', FILE_APPEND );
 
-/* // build compressed ifm
+// build compressed ifm
 file_put_contents(
-	IFM_STANDALONE_GZ,
+	IFM_RELEASE_DIR . (IFM_CDN ? 'cdn.' : '') . IFM_STANDALONE_GZ,
 	'<?php eval( gzdecode( file_get_contents( __FILE__, false, null, 85 ) ) ); exit(0); ?>'
-	. gzencode( file_get_contents( "ifm.php", false, null, 5 ) )
+	. gzencode( file_get_contents( IFM_RELEASE_DIR . (IFM_CDN ? 'cdn.' : '') .IFM_STANDALONE, false, null, 5 ) )
 );
- */
-
 // build lib
-file_put_contents( IFM_LIB, $compiled );
+file_put_contents( IFM_RELEASE_DIR . (IFM_CDN ? 'cdn.' : '') . IFM_LIB, $compiled );

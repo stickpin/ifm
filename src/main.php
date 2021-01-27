@@ -23,7 +23,8 @@ class IFM {
 		"tmp_dir" => "",
 		"timezone" => "",
 		"forbiddenChars" => array(),
-		"language" => "@@@vars:defaultlanguage@@@",
+		"dateLocale" => "en-US",
+		"language" => "@@@vars:default_lang@@@",
 		"selfoverwrite" => 0,
 
 		// api controls
@@ -42,6 +43,7 @@ class IFM {
 		"zipnload" => 1,
 		"createarchive" => 1,
 		"search" => 1,
+		"pagination" => 0,
 
 		// gui controls
 		"showlastmodified" => 0,
@@ -55,13 +57,14 @@ class IFM {
 		"contextmenu" => 1,
 		"disable_mime_detection" => 0,
 		"showrefresh" => 1,
-		"forceproxy" => 0
+		"forceproxy" => 0,
+		"confirmoverwrite" => 1
 	);
 
 	private $config = array();
 	private $templates = array();
 	private $i18n = array();
-	public $mode = "";
+	public $mode = "standalone";
 
 	public function __construct( $config=array() ) {
 
@@ -75,6 +78,7 @@ class IFM {
 		$this->config['root_public_url'] =  getenv('IFM_ROOT_PUBLIC_URL') !== false ? getenv('IFM_ROOT_PUBLIC_URL') : $this->config['root_public_url'] ;
 		$this->config['tmp_dir'] =  getenv('IFM_TMP_DIR') !== false ? getenv('IFM_TMP_DIR') : $this->config['tmp_dir'] ;
 		$this->config['timezone'] =  getenv('IFM_TIMEZONE') !== false ? getenv('IFM_TIMEZONE') : $this->config['timezone'] ;
+		$this->config['dateLocale'] =  getenv('IFM_DATELOCALE') !== false ? getenv('IFM_DATELOCALE') : $this->config['dateLocale'] ;
 		$this->config['forbiddenChars'] =  getenv('IFM_FORBIDDENCHARS') !== false ? str_split( getenv('IFM_FORBIDDENCHARS') ) : $this->config['forbiddenChars'] ;
 		$this->config['language'] =  getenv('IFM_LANGUAGE') !== false ? getenv('IFM_LANGUAGE') : $this->config['language'] ;
 		$this->config['selfoverwrite'] =  getenv('IFM_SELFOVERWRITE') !== false ? getenv('IFM_SELFOVERWRITE') : $this->config['selfoverwrite'] ;
@@ -104,6 +108,7 @@ class IFM {
 		$this->config['search'] =  getenv('IFM_API_SEARCH') !== false ? intval( getenv('IFM_API_SEARCH') ) : $this->config['search'] ;
 		$this->config['showrefresh'] =  getenv('IFM_GUI_REFRESH') !== false ? intval( getenv('IFM_GUI_REFRESH') ) : $this->config['showrefresh'] ;
 		$this->config['forceproxy'] =  getenv('IFM_GUI_FORCEPROXY') !== false ? intval( getenv('IFM_GUI_FORCEPROXY') ) : $this->config['forceproxy'] ;
+		$this->config['confirmoverwrite'] =  getenv('IFM_GUI_CONFIRMOVERWRITE') !== false ? intval( getenv('IFM_GUI_CONFIRMOVERWRITE') ) : $this->config['confirmoverwrite'] ;
 
 		// optional settings
 		if( getenv('IFM_SESSION_LIFETIME') !== false )
@@ -175,6 +180,9 @@ f00bar;
 		$templates['uploadfile'] = <<<'f00bar'
 @@@file:src/templates/modal.uploadfile.html@@@
 f00bar;
+		$templates['uploadconfirmoverwrite'] = <<<'f00bar'
+@@@file:src/templates/modal.uploadconfirmoverwrite.html@@@
+f00bar;
 		$this->templates = $templates;
 
 		$i18n = array();
@@ -182,9 +190,10 @@ f00bar;
 		$this->i18n = $i18n;
 		
 		if( in_array( $this->config['language'], array_keys( $this->i18n ) ) )
-			$this->l = $this->i18n[$this->config['language']];
+			// Merge english with the language in case of missing keys
+			$this->l = array_merge($this->i18n['en'], $this->i18n[$this->config['language']]);
 		else
-			$this->l = reset($this->i18n);
+			$this->l = $this->i18n['en'];
 
 		if ($this->config['timezone'])
 			date_default_timezone_set($this->config['timezone']);
@@ -207,33 +216,7 @@ f00bar;
 		$this->getJS();
 	}
 
-	public function getCSS() {
-		print '
-			<style type="text/css">';?> @@@file:src/includes/bootstrap.min.css@@@ <?php print '</style>
-			<style type="text/css">';?> @@@file:src/includes/bootstrap-treeview.min.css@@@ <?php print '</style>
-			<style type="text/css">';?> @@@file:src/includes/datatables.min.css@@@ <?php print '</style>
-			<style type="text/css">';?> @@@file:src/includes/fontello-embedded.css@@@ <?php print '</style>
-			<style type="text/css">';?> @@@file:src/includes/animation.css@@@ <?php print '</style>
-			<style type="text/css">';?> @@@file:src/style.css@@@ <?php print '</style>
-		';
-	}
-
-	public function getJS() {
-		echo <<<'f00bar'
-<script>
-			@@@file:src/includes/jquery.min.js@@@
-			@@@file:src/includes/bootstrap.min.js@@@
-			@@@file:src/includes/bootstrap-notify.min.js@@@
-			@@@file:src/includes/bootstrap-treeview.min.js@@@
-			@@@file:src/includes/datatables.min.js@@@
-			@@@file:src/includes/BootstrapMenu.min.js@@@
-			@@@file:src/includes/mustache.min.js@@@
-			@@@file:src/includes/ace.js@@@
-			@@@acedir:src/includes/ace@@@
-			@@@file:src/ifm.js@@@
-</script>
-f00bar;
-	}
+IFM_ASSETS
 
 	public function getHTMLHeader() {
 		print '<!DOCTYPE HTML>
@@ -242,7 +225,7 @@ f00bar;
 				<title>IFM - improved file manager</title>
 				<meta charset="utf-8">
 				<meta http-equiv="X-UA-Compatible" content="IE=edge">
-				<meta name="viewport" content="width=device-width, initial-scale=1">';
+				<meta name="viewport" content="user-scalable=no, width=device-width, initial-scale=1.0, shrink-to-fit=no">';
 		$this->getCSS();
 		print '</head><body>';
 	}
@@ -420,7 +403,7 @@ f00bar;
 	private function getConfig() {
 		$ret = $this->config;
 		$ret['inline'] = ( $this->mode == "inline" ) ? true : false;
-		$ret['isDocroot'] = ($this->getRootDir() == $this->getScriptRoot);
+		$ret['isDocroot'] = ($this->getRootDir() == $this->getScriptRoot());
 
 		foreach (array("auth_source", "root_dir") as $field) {
 			unset($ret[$field]);
@@ -836,7 +819,11 @@ f00bar;
 				$this->jsonResponse( array( "status" => "ERROR", "message" => $this->l['invalid_filename'] ) );
 			else {
 				unset( $zip );
-				$dfile = $this->pathCombine( __DIR__, $this->config['tmp_dir'], uniqid( "ifm-tmp-" ) . ".zip" ); // temporary filename
+				if ($this->isAbsolutePath($this->config['tmp_dir']))
+					$dfile = $this->pathCombine( $this->config['tmp_dir'], uniqid( "ifm-tmp-" ) . ".zip" ); // temporary filename
+				else
+					$dfile = $this->pathCombine( __DIR__, $this->config['tmp_dir'], uniqid( "ifm-tmp-" ) . ".zip" ); // temporary filename
+
 				try {
 					IFMArchive::createZip(realpath($d['filename']), $dfile, array($this, 'isFilenameValid'));
 					if( $d['filename'] == "." ) {
@@ -996,7 +983,7 @@ f00bar;
 				$item = utf8_encode( $item );
 	}
 
-	public function checkAuth() {
+	function checkAuth() {
 		if( $this->config['auth'] == 0 )
 			return true;
 
@@ -1018,8 +1005,8 @@ f00bar;
 
 		if( ! isset( $_SESSION['ifmauth'] ) || $_SESSION['ifmauth'] !== true ) {
 			$login_failed = false;
-			if( isset( $_POST["user"] ) && isset( $_POST["pass"] ) ) {
-				if( $this->checkCredentials( $_POST["user"], $_POST["pass"] ) ) {
+			if( isset( $_POST["inputLogin"] ) && isset( $_POST["inputPassword"] ) ) {
+				if( $this->checkCredentials( $_POST["inputLogin"], $_POST["inputPassword"] ) ) {
 					$_SESSION['ifmauth'] = true;
 				}
 				else {
@@ -1104,10 +1091,10 @@ f00bar;
 		return false;
 	}
 
-	private function loginForm($loginFailed=false) {
+	private function loginForm($loginFailed=false, $loginMessage="") {
 		$err = "";
 		if( $loginFailed ) 
-			$err = '<div class="alert alert-danger">'.$this->l['login_failed'].'</div>';
+			$err = '<div class="alert alert-danger" role="alert">'.$loginMessage.'</div>';
 		$this->getHTMLHeader();
 		$html = str_replace( "{{error}}", $err, $this->templates['login'] );
 		$html = str_replace( "{{i18n.username}}", $this->l['username'], $html );
@@ -1201,15 +1188,16 @@ f00bar;
 	private function getTypeIcon( $type ) {
 		$type = strtolower($type);
 		switch( $type ) {
-			case "aac":	case "aiff": case "mid": case "mp3": case "wav": return 'icon icon-file-audio'; break;
-			case "ai": case "bmp": case "eps": case "tiff": case "gif": case "jpg": case "jpeg": case "png": case "psd": return 'icon icon-file-image'; break;
+			case "aac": case "aiff": case "mid": case "mp3": case "wav": return 'icon icon-file-audio'; break;
+			case "ai": case "bmp": case "eps": case "tiff": case "gif": case "jpg": case "jpeg": case "png": case "psd": case "svg": return 'icon icon-file-image'; break;
 			case "avi": case "flv": case "mp4": case "mpg": case "mkv": case "mpeg": case "webm": case "wmv": case "mov": return 'icon icon-file-video'; break;
-			case "c": case "cpp": case "css": case "dat": case "h": case "html": case "java": case "js": case "php": case "py": case "sql": case "xml": case "yml": return 'icon icon-file-code'; break;
+			case "c": case "cpp": case "css": case "dat": case "h": case "html": case "java": case "js": case "php": case "py": case "sql": case "xml": case "yml": case "json": return 'icon icon-file-code'; break;
 			case "doc": case "docx": case "odf": case "odt": case "rtf": return 'icon icon-file-word'; break;
+			case "txt": case "log": return 'icon icon-doc-text'; break;
 			case "ods": case "xls": case "xlsx": return 'icon icon-file-excel'; break;
 			case "odp": case "ppt": case "pptx": return 'icon icon-file-powerpoint'; break;
 			case "pdf": return 'icon icon-file-pdf'; break;
-			case "tgz":	case "zip": case "tar": case "tgz": case "tar.gz": case "tar.xz": case "tar.bz2": case "7z": case "rar": return 'icon icon-file-archive';
+			case "tgz": case "zip": case "tar": case "tgz": case "tar.gz": case "tar.xz": case "tar.bz2": case "7z": case "rar": return 'icon icon-file-archive';
 			default: return 'icon icon-doc';
 		}
 	}

@@ -6,9 +6,9 @@ ENV IFM_ROOT_DIR="/var/www"    \
     IFM_TMP_DIR="/tmp"
 
 # add missing extensions and dependencies
-RUN apk add --no-cache libbz2 libzip libcap sudo && \
+RUN apk add --no-cache libbz2 libzip libcap openldap-dev sudo && \
     apk add --no-cache --virtual .php-extension-build-deps bzip2 bzip2-dev libzip-dev && \
-    docker-php-ext-install bz2 zip && \
+    docker-php-ext-install bz2 zip ldap && \
     apk del --no-cache --purge .php-extension-build-deps
 
 # allow php binary to bind ports <1000, even if $USER != root
@@ -24,9 +24,16 @@ RUN echo "Set disable_coredump false" > /etc/sudo.conf
 # prepare files
 RUN rm -rf /var/www/html && \
     mkdir -p /usr/local/share/webapps/ifm && \
-    ln -s /var/www /usr/local/share/webapps/ifm/www
-COPY ifm.php /usr/local/share/webapps/ifm/index.php
-COPY docker-startup.sh /usr/local/bin
+    chown -R 33:33 /var/www && \
+    ln -s /var/www /usr/local/share/webapps/ifm/www && \
+    mkdir -p /usr/src/ifm
+COPY / /usr/src/ifm/
+RUN /usr/src/ifm/compiler.php --languages=all && \
+    cp /usr/src/ifm/dist/ifm.php /usr/local/share/webapps/ifm/index.php && \
+    cp /usr/src/ifm/docker/php.ini /usr/local/share/webapps/ifm/ && \
+    rm -rf /usr/src/ifm
+
+COPY docker/docker-startup.sh /usr/local/bin
 
 # start php server
 WORKDIR /usr/local/share/webapps/ifm
